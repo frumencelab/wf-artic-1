@@ -313,6 +313,7 @@ comparing depth across samples.***
                 'Profondeur': pro,
                 'Couverture': c
                 }
+        global tb
         tb = pd.DataFrame(data, columns= ['Barcode','Profondeur', 'Couverture'])
         print(tb)
         tb.to_csv("data.csv", sep =",", header = True)
@@ -382,7 +383,7 @@ The table below highlights values of the main parameters used in this analysis.
 
     # write report
     report_doc.write(args.output)
-
-
+    
 if __name__ == "__main__":
     main()
+tb.to_csv("data.csv", sep =",", header = True)
