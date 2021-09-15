@@ -314,7 +314,8 @@ comparing depth across samples.***
                 'Couverture': c
                 }
         tb = pd.DataFrame(data, columns= ['Barcode','Profondeur', 'Couverture'])
-        return tb.to_csv("data.csv", sep =",", header = True)
+        print(tb)
+        tb.to_csv("data.csv", sep =",", header = True)
         section = report_doc.add_section()
         section.table(tb, index=False, paging=False)
        
