@@ -4,10 +4,10 @@ nextflow.enable.dsl = 2
 include { fastq_ingress } from './lib/fastqingress' 
 
 valid_schemes = ["SARS-CoV-2", "spike-seq"]
-valid_scheme_versions = ["V1", "V2", "V3", "V4", "V1200"]
+valid_scheme_versions = ["V1", "V2", "V3", "V4", "V4.1", "V1200"]
 
 if (params.scheme_name == "spike-seq") {
-    valid_scheme_versions = ["V1"]
+    valid_scheme_versions = ["V1", "V4.1"]
 }
 
 def helpMessage(){
@@ -25,6 +25,7 @@ Options:
     --medaka_model              STR     Medaka model name (default: $params.medaka_model)
     --min_len                   INT     Minimum read length (default: set by scheme)
     --max_len                   INT     Maximum read length (default: set by scheme)
+    --max_softclip_length       INT     Maximum alignment overhang length, to remove possibly chimeric reads (default: 0)
     --scheme_name               STR     Scheme to use ($valid_schemes) (default: SARS-CoV-2)
     --scheme_version            STR     Primer scheme version ($valid_scheme_versions)
                                         (default: $params.scheme_version)
@@ -112,7 +113,7 @@ process runArtic {
     run_artic.sh \
         ${sample_name} ${directory} ${params._min_len} ${params._max_len} \
         ${params.medaka_model} ${params.full_scheme_name} \
-        ${task.cpus}
+        ${task.cpus} ${params._max_softclip_length}
     bcftools stats ${sample_name}.pass.named.vcf.gz > ${sample_name}.pass.named.stats 
     """
 }
@@ -259,14 +260,21 @@ process nextclade {
         file "consensus.fasta"
         file "reference.fasta"
         file scheme_bed
+        file "nextclade_dataset"
     output:
         file "nextclade.json"
     """
     cp -L reference.fasta ref.fasta
     scheme_to_nextclade.py $scheme_bed ref.fasta primers.csv
-    nextclade \
-        --input-fasta consensus.fasta --input-pcr-primers primers.csv \
-        --output-json nextclade.json --jobs 1
+    nextclade run \
+        --input-fasta consensus.fasta \
+        --reference nextclade_dataset/reference.fasta \
+        --input-pcr-primers primers.csv \
+        --input-tree nextclade_dataset/tree.json \
+        --input-qc-config nextclade_dataset/qc.json \
+        --input-gene-map nextclade_dataset/genemap.gff \
+        --output-json nextclade.json \
+        --jobs 1
     """
 }
 
@@ -312,6 +320,7 @@ workflow pipeline {
         reference
         primers
         ref_variants
+        nextclade_dataset
     main:
         software_versions = get_versions()
         combined_genotype_summary = Channel.empty()
@@ -331,7 +340,8 @@ workflow pipeline {
             genotype_summary = Channel.fromPath("$projectDir/data/OPTIONAL_FILE")
         }
         // nextclade
-        clades = nextclade(all_consensus[0], reference, primers)
+        clades = nextclade(
+            all_consensus[0], reference, primers, nextclade_dataset)
         // pangolin
         pangolin(all_consensus[0])
         software_versions = software_versions.mix(pangolin.out.version)
@@ -404,6 +414,14 @@ workflow {
         params._max_len = params.max_len
         params.remove('max_len')
     }
+    if (!params.max_softclip_length) {
+        params.remove('max_softclip_length')
+        params._max_softclip_length = 0
+    }
+    else{
+        params._max_softclip_length = params.max_softclip_length
+        params.remove('max_softclip_length')
+    }
     println("")
     println("Parameter summary")
     println("=================")
@@ -411,8 +429,12 @@ workflow {
     println("")
 
     params.full_scheme_name = params.scheme_name + "/" + params.scheme_version
+
     schemes = projectDir + '/data/primer_schemes'
     scheme_directory = file(schemes, type: 'dir', checkIfExists:true)
+    nextclade = projectDir + '/data/nextclade/'
+    nextclade_dataset = file(nextclade, type: 'dir', checkIfExists:true)
+
     reference = file(
         "${scheme_directory}/${params.full_scheme_name}/${params.scheme_name}.reference.fasta",
         type:'file', checkIfExists:true)
@@ -436,6 +458,7 @@ workflow {
     // check fastq dataset and run workflow
     samples = fastq_ingress(
         params.fastq, workDir, params.samples, params.sanitize_fastq)
-    results = pipeline(samples, scheme_directory, reference, primers, ref_variants)
+    results = pipeline(samples, scheme_directory, reference, 
+        primers, ref_variants, nextclade_dataset)
     output(results)
 }
