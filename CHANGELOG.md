@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.4]
+### Added
+- Option to add suffix to HTML report name.
+- Error message if fastq input file evaluates to null.
+- Output Nextflow schema JSON file.
+- Output artic JSON file.
+
 ## [v0.3.3]
 ### Changed
 - Update nextclade to c++ version 1.3.0, install via bioconda.
@@ -12,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - V4.1 primer set for spike-seq.
 - Tag for pangolin image is now specified in nextflow config.
 - Integrate max_softclip_length parameter to be passed into artic minion.
+- Output artic.json.
 ### Fixed
 - Parsing of sample_name column from summary files during report curation.
 
