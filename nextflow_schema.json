@@ -164,6 +164,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Show / hide variant information in report."
+                },
+                "report_detailed": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show / hide some extra plots for detailed batch analysis."
                 }
             },
             "fa_icon": "fas fa-address-card",
@@ -216,7 +221,7 @@
         },
         "wfversion": {
             "type": "string",
-            "default": "v0.3.3",
+            "default": "v0.3.5",
             "hidden": true
         },
         "pangolin_version": {

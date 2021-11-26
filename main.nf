@@ -1,4 +1,6 @@
 #!/usr/bin/env nextflow
+
+import groovy.json.JsonBuilder
 nextflow.enable.dsl = 2
 
 include { fastq_ingress } from './lib/fastqingress'
@@ -34,11 +36,11 @@ process preArticQC {
     label "artic"
     cpus 1
     input:
-        tuple file(directory), val(sample_name) 
+        tuple file(directory), val(sample_id), val(type)
     output:
-        file "${sample_name}.stats"
+        file "${sample_id}.stats"
     """
-    fastcat -s ${sample_name} -r ${sample_name}.stats -x ${directory} > /dev/null
+    fastcat -s ${sample_id} -r ${sample_id}.stats -x ${directory} > /dev/null
     """
 }
 
@@ -47,21 +49,38 @@ process runArtic {
     label "artic"
     cpus 2
     input:
-        tuple file(directory), val(sample_name)
+        tuple file(directory), val(sample_id), val(type)
         file "primer_schemes"
     output:
-        path "${sample_name}.consensus.fasta", emit: consensus
-        tuple path("${sample_name}.pass.named.vcf.gz"), path("${sample_name}.pass.named.vcf.gz.tbi"), emit: pass_vcf
-        tuple path("${sample_name}.merged.gvcf.named.vcf.gz"), path("${sample_name}.merged.gvcf.named.vcf.gz.tbi"), emit: merged_gvcf
-        path "${sample_name}.depth.txt", emit: depth_stats
-        path "${sample_name}.pass.named.stats", emit: vcf_stats
-        tuple path("${sample_name}.primertrimmed.rg.sorted.bam"), path("${sample_name}.primertrimmed.rg.sorted.bam.bai"), emit: bam
+        path "${sample_id}.consensus.fasta", emit: consensus
+        path "${sample_id}.depth.txt", emit: depth_stats
+        path "${sample_id}.pass.named.stats", emit: vcf_stats
+        tuple(
+            val(sample_id),
+            path("${sample_id}.pass.named.vcf.gz"),
+            path("${sample_id}.pass.named.vcf.gz.tbi"),
+            emit: pass_vcf)
+        tuple(
+            val(sample_id),
+            path("${sample_id}.merged.gvcf.named.vcf.gz"),
+            path("${sample_id}.merged.gvcf.named.vcf.gz.tbi"),
+            emit: merged_gvcf)
+        tuple(
+            val(sample_id),
+            path("${sample_id}.primertrimmed.rg.sorted.bam"),
+            path("${sample_id}.primertrimmed.rg.sorted.bam.bai"),
+            emit: primertrimmed_bam)
+        tuple(
+            val(sample_id),
+            path("${sample_id}.trimmed.rg.sorted.bam"),
+            path("${sample_id}.trimmed.rg.sorted.bam.bai"),
+            emit: trimmed_bam)
     """
     run_artic.sh \
-        ${sample_name} ${directory} ${params._min_len} ${params._max_len} \
+        ${sample_id} ${directory} ${params._min_len} ${params._max_len} \
         ${params.medaka_model} ${params.full_scheme_name} \
         ${task.cpus} ${params._max_softclip_length}
-    bcftools stats ${sample_name}.pass.named.vcf.gz > ${sample_name}.pass.named.stats 
+    bcftools stats ${sample_id}.pass.named.vcf.gz > ${sample_id}.pass.named.stats 
     """
 }
 
@@ -71,17 +90,22 @@ process genotypeSummary {
     label "artic"
     cpus 1
     input:
-        tuple file(vcf), file(tbi)
-        tuple file(bam), file(bam_index)
+        tuple val(sample_id), file(vcf), file(tbi), file(bam), file(bam_index)
         file "reference.vcf"
     output:
         file "*genotype.csv"
     script:
         def lab_id = params.lab_id ? "--lab_id ${params.lab_id}" : ""
         def testkit = params.testkit ? "--testkit ${params.testkit}" : ""
-        def csvName = vcf.simpleName
     """
-    genotype_summary.py -b $bam -v $vcf -d reference.vcf --sample $csvName $lab_id $testkit -o ${csvName}.genotype.csv
+    genotype_summary.py \
+        -b $bam \
+        -v $vcf \
+        -d reference.vcf \
+        --sample $sample_id \
+        $lab_id \
+        $testkit \
+        -o ${csvName}.genotype.csv
     """
 }
 
@@ -99,7 +123,7 @@ process combineGenotypeSummaries {
 }
 
 
-process get_versions {
+process getVersions {
     label "artic"
     cpus 1
     output:
@@ -116,6 +140,44 @@ process get_versions {
 }
 
 
+process getParams {
+    label "wfplasmid"
+    cpus 1
+    output:
+        path "params.json"
+    script:
+        def paramsJSON = new JsonBuilder(params).toPrettyString()
+    """
+    # Output nextflow params object to JSON
+    echo '$paramsJSON' > params.json
+    """
+}
+
+
+process telemetry {
+    label "artic"
+    cpus 1
+    input:
+        tuple val(sample_id), file(bams), file(bais), file(vcfs), file(tbis)
+        path scheme_bed
+        path reference
+    output:
+        path "telemetry.json", emit: json
+    script:
+        def samples = sample_id.join(' ')
+    """
+    output_telemetry.py \
+        telemetry.json \
+        --scheme_name $params.scheme_name \
+        --scheme_bed $scheme_bed \
+        --reference $reference \
+        --samples $samples \
+        --alignments $bams \
+        --calls $vcfs
+    """
+}
+
+
 process report {
     label "artic"
     cpus 1
@@ -123,12 +185,17 @@ process report {
         path "depth_stats/*"
         path "read_stats/*"
         path "nextclade.json"
+        path nextclade_errors
         path "pangolin.csv"
         path "genotypes/*"
         path "vcf_stats/*"
         path "consensus_status.txt"
         path "versions/*"
+        path "params.json"
         path "consensus_fasta"
+        path "telemetry.json"
+        val samples
+        val types
     output:
         path "wf-artic-*.html"
         path "*.json"
@@ -140,24 +207,51 @@ process report {
     def pangolin = params.report_lineage as Boolean ? "--pangolin pangolin.csv" : ""
     def coverage = params.report_coverage as Boolean ? "" : "--hide_coverage"
     def var_summary = params.report_variant_summary as Boolean ? "" : "--hide_variants"
-    def paramsMap = params.toMapString()
-        .replace("[", "")
-        .replace("]", "")
-        .replace(", ", "\n")
-        .replace(":", ",");
+    def debug = params.report_detailed as Boolean ? "--telemetry telemetry.json" : "--hide_debug"
     """
     echo "$pangolin"
     echo "$nextclade"
-    echo "$paramsMap" > params.csv
     report.py \
         consensus_status.txt $report_name \
-        $pangolin $nextclade $coverage $var_summary \
-        --revision $workflow.revision --params params.csv --commit $workflow.commitId \
-        --min_len $params._min_len --max_len $params._max_len --report_depth \
-        $params.report_depth --depths depth_stats/* --summaries read_stats/* \
+        $pangolin $coverage $var_summary \
+        $nextclade $debug \
+        --nextclade_errors $nextclade_errors \
+        --revision $workflow.revision \
+        --commit $workflow.commitId \
+        --min_len $params._min_len \
+        --max_len $params._max_len \
+        --report_depth $params.report_depth \
+        --depths depth_stats/* \
+        --summaries read_stats/* \
         --bcftools_stats vcf_stats/* $genotype \
         --versions versions \
-        --consensus_fasta $consensus_fasta
+        --params params.json \
+        --consensus_fasta $consensus_fasta \
+        --samples $samples \
+        --types $types
+    """
+}
+
+
+process report_no_data {
+    label "artic"
+    cpus 1
+    input:
+        path "versions/*"
+        val error
+        path "params.json"
+    output:
+        path "wf-artic-*.html"
+        path "*.json", optional: true
+    script:
+    // when genotype_variants is false the channel contains a mock file
+    def report_name = "wf-artic-" + params.report_name + '.html'
+    def error_message = error
+    """
+    report_error.py \
+        --output $report_name \
+        --revision $workflow.revision --params params.json --commit $workflow.commitId \
+        --versions versions --error_message \"$error_message\"
     """
 }
 
@@ -183,7 +277,7 @@ process allVariants {
     label "artic"
     cpus 1
     input:
-        tuple file(vcfs), file(tbis)
+        tuple val(sample_id), file(vcfs), file(tbis)
         file reference
     output:
         tuple file("all_variants.vcf.gz"), file("all_variants.vcf.gz.tbi")
@@ -214,6 +308,7 @@ process nextclade {
         file "nextclade_dataset"
     output:
         file "nextclade.json"
+        file "*.errors.csv"
     """
     cp -L reference.fasta ref.fasta
     scheme_to_nextclade.py $scheme_bed ref.fasta primers.csv
@@ -273,42 +368,76 @@ workflow pipeline {
         ref_variants
         nextclade_dataset
     main:
-        software_versions = get_versions()
+        software_versions = getVersions()
+        workflow_params = getParams()
         combined_genotype_summary = Channel.empty()
         scheme_directory = copySchemeDir(scheme_directory)
-        read_summaries = preArticQC(samples)
-        runArtic(samples, scheme_directory)
-        // collate consensus and variants
-        all_consensus = allConsensus(runArtic.out[0].collect())
-        tmp = runArtic.out.pass_vcf.toList().transpose().toList() // surely theres another way?
-        all_variants = allVariants(tmp, reference)
-        // genotype summary
-        if (params.genotype_variants) {
-            genotype_summary = genotypeSummary(
-                runArtic.out.merged_gvcf, runArtic.out.bam, ref_variants).collect()
-            combined_genotype_summary = combineGenotypeSummaries(genotype_summary)
+        if ((samples.getClass() == String) && (samples.startsWith("Error"))){
+            samples = channel.of(samples)
+            html_doc = report_no_data(
+                software_versions.collect(),
+                samples,
+                workflow_params)
+            results = html_doc[0].concat(html_doc[1])
         } else {
-            genotype_summary = Channel.fromPath("$projectDir/data/OPTIONAL_FILE")
-        }
-        // nextclade
-        clades = nextclade(
-            all_consensus[0], reference, primers, nextclade_dataset)
-        // pangolin
-        pangolin(all_consensus[0])
-        software_versions = software_versions.mix(pangolin.out.version)
-        // report
-        html_doc = report(
-            runArtic.out.depth_stats.collect(),
-            read_summaries.collect(), 
-            clades.collect(),
-            pangolin.out.report.collect(),
-            genotype_summary.collect(),
-            runArtic.out.vcf_stats.collect(),
-            all_consensus[1],
-            software_versions.collect(),
-            all_consensus[0])
-        results = all_consensus[0].concat(all_consensus[1], all_variants[0].flatten(), clades[0],
-            runArtic.out.bam.flatten(), html_doc[0], html_doc[1], combined_genotype_summary, pangolin.out.report)
+            read_summaries = preArticQC(samples)
+            artic = runArtic(samples, scheme_directory)
+            // collate consensus and variants
+            artic.consensus.view()
+            all_consensus = allConsensus(artic.consensus.collect())
+            all_variants = allVariants(
+                artic.pass_vcf.toList().transpose().toList(), reference)
+            // genotype summary
+            if (params.genotype_variants) {
+                genotype_summary = genotypeSummary(
+                    artic.merged_gvcf.join(artic.primertrimmed_bam), ref_variants)
+                combined_genotype_summary = combineGenotypeSummaries(
+                    genotype_summary.collect())
+            } else {
+                genotype_summary = Channel.fromPath("$projectDir/data/OPTIONAL_FILE")
+            }
+            // nextclade
+            clades = nextclade(
+                all_consensus[0], reference, primers, nextclade_dataset)
+            // pangolin
+            pangolin(all_consensus[0])
+            software_versions = software_versions.mix(pangolin.out.version)
+            // telemetry
+            telemetry_output = telemetry(
+                artic.trimmed_bam.join(artic.pass_vcf).toList().transpose().toList(),
+                primers,
+                reference)
+            // report
+            
+            html_doc = report(
+                artic.depth_stats.collect(),
+                read_summaries.collect(), 
+                clades[0].collect(),
+                clades[1].collect(),
+                pangolin.out.report.collect(),
+                genotype_summary.collect(),
+                artic.vcf_stats.collect(),
+                all_consensus[1],
+                software_versions.collect(),
+                workflow_params,
+                all_consensus[0],
+                telemetry_output,
+                // sample_ids
+                samples.map{ it -> it[1]}.toList().map{ it.join(' ')},
+                // sample types
+                samples.map{ it -> it[2]}.toList().map{ it.join(' ')}
+                )
+            results = all_consensus[0].concat(
+                telemetry.out.json,
+                all_consensus[1],
+                all_variants[0].flatten(),
+                clades[0],
+                artic.primertrimmed_bam.flatMap { it -> [ it[1], it[2] ] },
+                html_doc[0],
+                html_doc[1],
+                combined_genotype_summary,
+                pangolin.out.report)
+            }
     emit:
         results
 }
@@ -402,6 +531,7 @@ workflow {
     // check fastq dataset and run workflow
     samples = fastq_ingress(
         params.fastq, workDir, params.samples, params.sanitize_fastq)
+
     results = pipeline(samples, scheme_directory, reference, 
         primers, ref_variants, nextclade_dataset)
     output(results)
