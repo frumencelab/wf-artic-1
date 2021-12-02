@@ -4,12 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.6]
+### Changes
+- Pangolin updated to 3.1.16 (Will now call B.1.1.529 successfully)
+- Pangolin now auto updates before it runs (internet connectivity required)
+- Nextclade updated to 1.5.1
+### Fixed
+- Segmentation faults in artic-tools vcfcheck code.
+
 ## [v0.3.5]
 ### Added
 - Error report if no data at all.
 - Telemetry JSON.
 - Nextclade errors output as seperate table.
-- `--report_debug` flag to show additional coverage plots
+- `--report_detailed` flag to show additional coverage plots
 - Parsing of sample sheet to include a `type` column
 ### Changes
 - `sample_name` changed to `sample_id` throughout
