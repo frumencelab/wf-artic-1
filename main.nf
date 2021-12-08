@@ -334,6 +334,7 @@ process pangolin {
         path "lineage_report.csv", emit: report
         path "pangolin.version", emit: version
     """
+    pangolin --update
     pangolin --all-versions 2>&1 | sed 's/: /,/' > pangolin.version
     pangolin consensus.fasta
     """

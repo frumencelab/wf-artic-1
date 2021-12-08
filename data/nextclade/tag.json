@@ -1,5 +1,5 @@
 {
-  "comment": "Clade name 21K gets WHO name: 21K -> 21K (Omicron)",
+  "comment": "Initial release",
   "compatibility": {
     "nextcladeCli": {
       "max": null,
@@ -10,7 +10,6 @@
       "min": "1.6.0"
     }
   },
-  "defaultGene": "S",
   "defaultRef": "MN908947",
   "enabled": true,
   "files": {
@@ -21,20 +20,6 @@
     "sequences": "sequences.fasta",
     "tree": "tree.json"
   },
-  "geneOrderPreference": [
-    "S",
-    "ORF1a",
-    "ORF1b",
-    "ORF3a",
-    "ORF6",
-    "ORF7a",
-    "ORF7b",
-    "ORF8",
-    "ORF9b",
-    "E",
-    "M",
-    "N"
-  ],
   "metadata": {},
   "name": "sars-cov-2",
   "nameFriendly": "SARS-CoV-2",
@@ -43,5 +28,5 @@
     "source": "genbank",
     "strainName": "Wuhan-Hu-1/2019"
   },
-  "tag": "2021-11-27T11:53:22Z"
+  "tag": "2021-06-25T00:00:00Z"
 }

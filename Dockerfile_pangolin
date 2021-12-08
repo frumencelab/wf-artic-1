@@ -10,7 +10,5 @@ RUN \
     && fix-permissions $CONDA_DIR \
     && fix-permissions $HOME
 
-RUN pangolin --update
-
 USER $WF_UID
 WORKDIR $HOME
