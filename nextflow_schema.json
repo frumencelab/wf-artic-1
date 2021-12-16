@@ -51,7 +51,7 @@
                     "enum": [
                         "SARS-CoV-2",
                         "spike-seq",
-                        "NEB-VarSkip"
+                        "NEB_VarSkip"
                     ]
                 },
                 "scheme_version": {
