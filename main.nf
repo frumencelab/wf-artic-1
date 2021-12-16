@@ -323,6 +323,9 @@ valid_scheme_versions = ["V1", "V2", "V3", "V4", "V4.1", "V1200", "V1a"]
 if (params.scheme_name == "spike-seq") {
     valid_scheme_versions = ["V1", "V4.1"]
 }
+if (params.scheme_name == "NEB_VarSkip") {
+    valid_scheme_versions = ["V1a"]
+}
 
 workflow {
 
