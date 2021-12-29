@@ -38,7 +38,7 @@ artic guppyplex --skip-quality-check \
 # the output of the above will be...
 READFILE="${sample_name}_${sample_name}.fastq"
 
-artic minion --medaka --normalise 700 --threads ${threads} \
+artic minion --medaka --normalise 750 --threads ${threads} \
     --read-file ${READFILE} \
     --medaka-model ${medaka_model} \
     --scheme-directory primer_schemes \
